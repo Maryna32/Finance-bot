@@ -1,4 +1,5 @@
 from pprint import pprint
+import asyncio
 from telegram import Update, Bot
 from telegram.ext import CommandHandler, ContextTypes, Application, CallbackContext
 
@@ -10,6 +11,10 @@ class TelegramBot:
     def __init__(self):
         self.__database = DatabaseRequests()
         self.__bot = Bot("5957878793:AAH391KCu0twpoXkbc7kfTzbsXNnN_Qc-5A")
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(self.__database.connect())
 
 
     async def start(self, update: Update,
@@ -30,7 +35,8 @@ class TelegramBot:
 
         query = "INSERT INTO users (username, chat_id) VALUES (%s, %s)"
         values = (user.username, update.message.chat.id)
-        self.__database.insert(query=query, values=values)
+    
+        await self.__database.insert(query=query, values=values)
 
 
     async def help_command(self, update: Update,
@@ -52,7 +58,7 @@ class TelegramBot:
         
         query = "INSERT INTO expenses (user_id, amount, category, created_at) VALUES (%s, %s, %s, NOW())"
         values = (user_id, amount, category)
-        self.__database.insert(query, values)
+        await self.__database.insert(query, values)
 
         message = f"Додано витрату {amount} грн. в категорії {category}!"
         await context.bot.send_message(chat_id=chat_id, text=message, parse_mode='HTML')
