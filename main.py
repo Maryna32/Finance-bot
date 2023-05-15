@@ -1,8 +1,8 @@
 from pprint import pprint
+import datetime
 import asyncio
-from telegram import Update, Bot
+from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes, Application, CallbackContext
-
 from services.DatabaseRequests import DatabaseRequests
 
 
@@ -10,7 +10,7 @@ class TelegramBot:
     
     def __init__(self):
         self.__database = DatabaseRequests()
-        self.__bot = Bot("5957878793:AAH391KCu0twpoXkbc7kfTzbsXNnN_Qc-5A")
+        # self.__bot = Bot("5957878793:AAH391KCu0twpoXkbc7kfTzbsXNnN_Qc-5A")
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -42,11 +42,12 @@ class TelegramBot:
     async def help_command(self, update: Update,
                            context: ContextTypes.DEFAULT_TYPE) -> None:
         
-        await update.message.reply_text("Основні команди: \nДодати витрати: /add_expense")
+        await update.message.reply_text("Основні команди: \nДодати витрати: /add_expense \nСтатистика за сьогоднішній день: /daily_expenses \nСтатистика за місяць: /view_monthly_statistics \nОстанні витрати: /view_last_expenses")
         await update.message.reply_text("Приклад створення витрат: /add_expense 100 таксі")
 
 
     async def add_expense(self, update: Update, context: CallbackContext):
+        
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
         try:
@@ -64,6 +65,69 @@ class TelegramBot:
         await context.bot.send_message(chat_id=chat_id, text=message, parse_mode='HTML')
 
 
+
+    async def daily_expenses(self, update: Update, context: CallbackContext) -> None:
+        
+        chat_id = update.effective_chat.id
+        user_id = update.effective_user.id
+        today = datetime.date.today()
+
+        query = "SELECT SUM(amount) FROM expenses WHERE user_id = %s AND DATE(created_at) = %s"
+        values = (user_id, today)
+        result = await self.__database.select_one(query, values)
+
+        if result and result[0]:
+            message = f"Витрати за сьогодні: {result[0]} грн."
+        else:
+            message = "За сьогодні витрат не було."
+
+        await context.bot.send_message(chat_id=chat_id, text=message)
+
+
+    async def view_last_expenses(self, update: Update, context: CallbackContext):
+
+        chat_id = update.effective_chat.id
+        user_id = update.effective_user.id
+        limit = 10 
+        query = f"SELECT amount, category, created_at FROM expenses WHERE user_id={user_id} ORDER BY created_at DESC LIMIT {limit}"
+        rows = await self.__database.select(query)
+        if not rows:
+            await context.bot.send_message(chat_id=chat_id, text="У вас поки що немає витрат")
+            return
+        message = "Останні витрати:\n"
+        for row in rows:
+            amount, category = row[:2]
+            created_at = row[2]
+            if created_at is not None:
+                created_at_str = created_at.strftime('%d.%m.%Y %H:%M:%S')
+            else:
+                created_at_str = 'N/A'
+            message += f"- {amount:.2f} грн. ({category}) - {created_at_str}\n"
+
+        await context.bot.send_message(chat_id=chat_id, text=message, parse_mode='HTML')
+
+
+    async def view_monthly_statistics(self, update: Update, context: CallbackContext):
+        chat_id = update.effective_chat.id
+        user_id = update.effective_user.id
+        today = datetime.date.today()
+        first_day_of_month = today.replace(day=1)
+        last_day_of_month = today.replace(day=28) + datetime.timedelta(days=4)
+        last_day_of_month = last_day_of_month.replace(day=1) - datetime.timedelta(days=1)
+        query = f"SELECT category, SUM(amount) FROM expenses WHERE user_id={user_id} AND created_at BETWEEN '{first_day_of_month}' AND '{last_day_of_month}' GROUP BY category"
+        rows = await self.__database.select(query)
+        if not rows:
+            await context.bot.send_message(chat_id=chat_id, text="За поточний місяць у вас поки що немає витрат")
+            return
+        total_amount = sum(row[1] for row in rows)
+        message = f"Статистика витрат за {today.strftime('%B %Y')}:\n"
+        for row in rows:
+            category, amount = row
+            message += f"- {amount:.2f} грн. ({category})\n"
+        message += f"\nУсього витрачено: {total_amount:.2f} грн."
+        await context.bot.send_message(chat_id=chat_id, text=message, parse_mode='HTML')
+
+
     def main(self) -> None:
 
         application = Application.builder().token(
@@ -71,6 +135,10 @@ class TelegramBot:
         application.add_handler(CommandHandler("start", self.start))
         application.add_handler(CommandHandler("help", self.help_command))
         application.add_handler(CommandHandler("add_expense", self.add_expense))
+        application.add_handler(CommandHandler("daily_expenses", self.daily_expenses))
+        application.add_handler(CommandHandler("view_last_expenses", self.view_last_expenses))
+        application.add_handler(CommandHandler("view_monthly_statistics", self.view_monthly_statistics))
+
         application.run_polling()
 
 
