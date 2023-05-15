@@ -21,6 +21,13 @@ class DatabaseRequests:
             async with conn.cursor() as cur:
                 await cur.execute(query)
                 return await cur.fetchall()
+            
+    async def select_one(self, query, values):
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(query, values)
+                return await cur.fetchone()
+
 
     async def insert(self, query, values):
         async with self.pool.acquire() as conn:
